@@ -1,7 +1,7 @@
 -- Создаем пользователя для репликации
 CREATE USER replica_user WITH REPLICATION LOGIN PASSWORD 'replica_password';
 
--- Создаем тестовую базу и таблицу для демонстрации
+-- Создаем тестовую базу и таблицу
 \c mydb;
 
 CREATE TABLE IF NOT EXISTS test_data (

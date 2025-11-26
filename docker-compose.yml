@@ -1,7 +1,5 @@
-version: '3.8'
-
 services:
-  # ОСНОВНАЯ БАЗА ДАННЫХ (МАСТЕР)
+  # Основная PostgreSQL база (master)
   postgres-master:
     image: postgres:15
     container_name: postgres-master
@@ -16,14 +14,10 @@ services:
       - ./postgres/master/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - db-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
 
-  # РЕПЛИКА БАЗЫ ДАННЫХ (ДЛЯ ЧТЕНИЯ)
+  # Реплика PostgreSQL (read-only)
   postgres-replica:
-    build: ./postgres/replica
+    image: postgres:15
     container_name: postgres-replica
     environment:
       POSTGRES_USER: admin
@@ -33,33 +27,55 @@ services:
       - "5433:5432"
     volumes:
       - postgres_replica_data:/var/lib/postgresql/data
+      - ./postgres/replica/setup-replica.sh:/docker-entrypoint-initdb.d/setup-replica.sh
     networks:
       - db-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
     depends_on:
       - postgres-master
+    command: >
+      bash -c "
+      chmod +x /docker-entrypoint-initdb.d/setup-replica.sh &&
+      /docker-entrypoint-initdb.d/setup-replica.sh &&
+      docker-entrypoint.sh postgres
+      "
 
-  # REDIS ДЛЯ КЭШИРОВАНИЯ
-  redis:
+  # Redis для кэширования
+  redis-cache:
     image: redis:7-alpine
     container_name: redis-cache
-    command: redis-server /usr/local/etc/redis/redis.conf
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
     networks:
       - db-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
 
-  # СИСТЕМА МОНИТОРИНГА - PROMETHEUS
+  # Экспортер метрик PostgreSQL
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://admin:secretpassword@postgres-master:5432/mydb?sslmode=disable"
+    ports:
+      - "9187:9187"
+    networks:
+      - db-network
+    depends_on:
+      - postgres-master
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: redis-exporter
+    environment:
+      REDIS_ADDR: "redis://redis-cache:6379"
+    ports:
+      - "9121:9121"
+    networks:
+      - db-network
+    depends_on:
+      - redis-cache
+
+  # Prometheus — сбор метрик
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -70,29 +86,24 @@ services:
       - prometheus_data:/prometheus
     networks:
       - db-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
+    depends_on:
+      - postgres-exporter
+      - redis-exporter
 
-  # СИСТЕМА МОНИТОРИНГА - GRAFANA
+  # Grafana — визуализация
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=grafana
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: grafana
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
     networks:
       - db-network
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
     depends_on:
       - prometheus
 
@@ -105,4 +116,4 @@ volumes:
 
 networks:
   db-network:
-    driver: overlay
+    driver: bridge

@@ -1,32 +1,37 @@
 #!/bin/bash
 set -e
 
-echo "Настройка PostgreSQL реплики..."
+echo "=== SETTING UP POSTGRESQL REPLICA ==="
 
-# Ждем пока мастер будет готов
+# Wait for master to be ready
+echo "Waiting for master to be available..."
 until pg_isready -h postgres-master -p 5432 -U admin; do
-  echo "Ожидание мастера..."
+  echo "Master not available, waiting..."
   sleep 2
 done
 
-# Останавливаем PostgreSQL чтобы скопировать данные
+echo "Master available! Starting replication setup..."
+
+# Stop PostgreSQL
+echo "Stopping PostgreSQL..."
 pg_ctl -D /var/lib/postgresql/data -m fast -w stop
 
-# Очищаем данные реплики
+# Clean replica data
+echo "Cleaning replica data..."
 rm -rf /var/lib/postgresql/data/*
 
-# Копируем данные с мастера
-pg_basebackup -h postgres-master -p 5432 -U replica_user -D /var/lib/postgresql/data -P --wal-method=stream
+# Copy data from master
+echo "Copying data from master..."
+PGPASSWORD=secretpassword pg_basebackup -h postgres-master -p 5432 -U admin -D /var/lib/postgresql/data -P --wal-method=stream -R
 
-# Настраиваем репликацию
-cat > /var/lib/postgresql/data/recovery.conf << EOF
-standby_mode = 'on'
-primary_conninfo = 'host=postgres-master port=5432 user=replica_user password=replica_password'
-primary_slot_name = 'replica_slot'
-trigger_file = '/tmp/promote_trigger'
-EOF
+# Create standby.signal for replica mode
+echo "Creating replica configuration..."
+touch /var/lib/postgresql/data/standby.signal
 
-# Запускаем PostgreSQL
+# Configure primary_conninfo
+echo "primary_conninfo = 'host=postgres-master port=5432 user=admin password=secretpassword'" >> /var/lib/postgresql/data/postgresql.conf
+
+echo "Starting replica..."
 pg_ctl -D /var/lib/postgresql/data -w start
 
-echo "Реплика настроена и запущена!"
+echo "=== REPLICA SETUP COMPLETED ==="
