@@ -1,0 +1,16 @@
+# Остановить всё (если что-то было)
+docker-compose down
+
+# Удалить старые тома (очень важно!)
+docker volume rm kurs_postgres_master_data kurs_postgres_replica_data kurs_redis_data kurs_grafana_data kurs_prometheus_data
+
+# Запустить заново
+docker-compose up -d
+
+# Подождать 30 секунд
+Start-Sleep -Seconds 30
+
+
+http://prometheus:9090
+Для PostgreSQL: ID 9628
+Для Redis: ID 11835
