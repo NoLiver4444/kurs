@@ -1,0 +1,36 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start services
+        run: docker-compose up -d
+
+      - name: Wait for startup
+        run: sleep 30
+
+      - name: Test PostgreSQL master
+        run: |
+          docker exec postgres-master psql -U admin -d mydb -c "SELECT 1;"
+
+      - name: Test PostgreSQL replication
+        run: |
+          docker exec postgres-master psql -U admin -d mydb -c "INSERT INTO test_data(name) VALUES ('CI test');"
+          docker exec postgres-replica psql -U admin -d mydb -c "SELECT * FROM test_data WHERE name = 'CI test';"
+
+      - name: Test Redis
+        run: |
+          docker exec redis-cache redis-cli PING
+
+      - name: Test Grafana is running
+        run: |
+          curl -f http://localhost:3000/api/health
